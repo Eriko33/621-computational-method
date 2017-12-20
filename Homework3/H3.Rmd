@@ -1,0 +1,950 @@
+---
+title: "H3"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Homework 3
+## Question(a)
+```{r}
+EFD.Eu <- function(type,K,T,S,sig,r,div,N,Nj,dx){
+ #precompute constants
+ dt = T/N
+ nu = r - div - 0.5 * sig^2
+ edx = exp(-dx)
+ pu = 0.5*dt* ((sig/dx)^2 + nu/dx)
+ pm = 1.0 - dt*(sig/dx)^2 - r*dt
+ pd = 0.5*dt* ((sig/dx)^2 - nu/dx)
+
+ #initialise asset prices at marturity
+ St = array(0,dim=c(2*Nj+1))
+ St[1] = S * exp(Nj*dx)
+ for(j in 2:(2*Nj+1)){
+   St[j] = St[j-1]*edx
+ }
+
+ #initialise option values to marturity
+ C = array(0,dim = c(2,2*Nj+1))
+ for(j in 1:(2*Nj+1)){
+   if(type == "C")
+    C[1,j] = max(0, St[j] - K)
+   if(type == "P")
+    C[1,j] = max(0, K - St[j])
+ }
+
+ #step back at though latice
+ for(i in N:1){
+   for(j in 2:(2*Nj)){
+     C[2,j] = pu*C[1,j-1]+pm*C[1,j]+pd*C[1,j+1]
+   }
+   
+   #boundary conditions
+   if(type == "C"){
+     C[2,1] = C[2,2] + (St[1]-St[2])
+     C[2,2*Nj+1] = C[2,2*Nj] 
+   }
+   if(type == "P"){
+     C[2,1] = C[2,2] 
+     C[2,2*Nj+1] = C[2,2*Nj] + (St[2*Nj+1]-St[2*Nj])
+   }
+   for(j in 1:(2*Nj+1)){
+    C[1,j] <- C[2,j]
+   }
+ }
+ C[1,Nj+1]
+}
+
+```
+
+## Question(b)
+```{r}
+IFD.Eu <- function(type,K,T,S,sig,r,div,N,Nj,dx){
+ #precompute constants
+ dt = T/N
+ nu = r - div - 0.5 * sig^2
+ edx=exp(-dx)
+ pu = -0.5*dt* ((sig/dx)^2 + nu/dx)
+ pm = 1.0 + dt*(sig/dx)^2 + r*dt
+ pd = -0.5*dt* ((sig/dx)^2 - nu/dx)
+
+ #initialise asset prices at marturity
+ St = array(0,dim=c(2*Nj+1))
+ St[1] = S * exp(Nj*dx)
+ for(j in 2:(2*Nj+1)){
+   St[j] = St[j-1]*edx
+ }
+
+ #initialise option values at marturity
+ C = array(0,dim=c(2,2*Nj+1))
+ for(j in 1:(2*Nj+1)){
+   if(type == "C")
+    C[1,j] = max(0, St[j] -K)
+   if(type == "P")
+    C[1,j] = max(0, K - St[j])
+ }
+
+ #compute derivative boundary condition
+ if(type == "C"){
+   lambda.U = St[1]-St[2]
+   lambda.L = 0.0
+ }
+ if(type == "P"){   
+   lambda.L = -1*(St[2*Nj]-St[2*Nj+1])
+   lambda.U = 0.0
+ }
+
+ #step back at though latice
+ for(i in N:1){
+  #substitute boundary condition at j=-Nj into j=-Nj+1
+  pmp=pp=NULL
+  pmp[2*Nj] = pm +pd
+  pp[2*Nj] = C[1,2*Nj] + pd*lambda.L
+
+  #eliminate upper diagonal
+  for(j in (2*Nj-1):2){
+    pmp[j] = pm-pu*pd/pmp[j+1]
+    pp[j] = C[1,j]-pp[j+1]*pd/pmp[j+1]
+  }
+
+  #use boundary condition at j=Nj and equation at j=Nj-1
+  C[2,1] = (pp[2]+pmp[2]*lambda.U)/(pu+pmp[2])
+  C[2,2] = C[2,1]-lambda.U
+
+  #back sutiatution
+  for(j in 3:(2*Nj+1)){
+    C[2,j] = (pp[j]-pu*C[2,j-1])/pmp[j]
+  }
+  for(j in 1:(2*Nj+1)){
+    C[1,j] <- C[2,j]
+
+    if(is.na(C[2,j])){
+      C[2,j] <- C[1,j]
+    }
+  }
+ }
+ C[1,Nj+1]
+}
+```
+
+## Question(c)
+```{r}
+N.compute1 <- function(T,sig){
+  N = 500
+  Nj = floor((6*sqrt(N/3)-1)/2)
+  dt = T/N
+  dx = 6 * sig * sqrt(T)/(2*Nj+1)
+  ebs <- dx^2 + dt
+  while(abs(ebs)>0.001){
+    N <- N+1
+    Nj <- floor((6*sqrt(N/3)-1)/2)
+    dt = T/N
+    dx = 6 * sig * sqrt(T)/(2*Nj+1)
+    ebs <- dx^2 + dt
+  }
+  cat("N=",N,"Nj=",Nj,"dx=",dx)
+}
+N.compute1(T=1,sig=0.25)
+```
+
+## Question(d)
+```{r}
+efd.c <- EFD.Eu(type="C",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+                N=1189,Nj=59,dx=0.01260504)
+efd.p <- EFD.Eu(type="P",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+                N=1189,Nj=59,dx=0.01260504)
+ifd.c <- IFD.Eu(type="C",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+                N=1189,Nj=59,dx=0.01260504)
+ifd.p <- IFD.Eu(type="P",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+                N=1189,Nj=59,dx=0.01260504)
+cat("EFD call option price = ",efd.c, "IFD call option price = ",ifd.c)
+cat("EFD put option price = ",efd.p, "IFD put option price = ",ifd.p)
+```
+
+## Question(e)
+```{r}
+# Function to calculate opntion price by BS formular
+BS <- function(type, S0, K, tau, r, sigma,div){
+
+  d1 <- (log(S0/K)+(r-div+sigma^2/2)*tau) / (sigma*sqrt(tau)) 
+  d2 <- d1 - sigma*sqrt(tau)
+  if(type=="C"){
+    Price <- S0*exp(-div*tau)*pnorm(d1) - K*exp(-r*tau)*pnorm(d2)
+  }
+  if(type=="P"){
+    Price <- K*exp(-r*tau)*pnorm(-d2) - S0*exp(-div*tau)*pnorm(-d1)
+  }
+  return(Price)
+}
+
+N.compute2EFD <- function(type,K,T,S,sig,r,div){
+  
+  theoretical.value <- BS(type, S, K, T, r, sig,div)
+  N=1700
+  Nj <- floor((6*sqrt(N/3)-1)/2)
+  dx = 6 * sig * sqrt(T)/(2*Nj+1)
+  ebs <- theoretical.value - EFD.Eu(type,K,T,S,sig,r,div,N,Nj,dx) 
+  while(abs(ebs)>0.001){
+    N <- N+1
+    Nj <- floor((6*sqrt(N/3)-1)/2)
+    dx = 6 * sig * sqrt(T)/(2*Nj+1)
+    ebs <- theoretical.value - EFD.Eu(type,K,T,S,sig,r,div,N,Nj,dx) 
+  }
+  dt = T/N
+  cat("EFD method: N=",N,"Nj=",Nj,"dx=",dx,"dt=",dt)
+}
+
+N.compute2IFD <- function(type,K,T,S,sig,r,div){
+  theoretical.value <- BS(type, S, K, T, r, sig,div)
+  N=4213
+  Nj <- floor((6*sqrt(N/3)-1)/2)
+  dx = 6 * sig * sqrt(T)/(2*Nj+1)
+  ebs <- theoretical.value - IFD.Eu(type,K,T,S,sig,r,div,N,Nj,dx) 
+  while(abs(ebs)>0.001){
+    N <- N+1
+    Nj <- floor((6*sqrt(N/3)-1)/2)
+    dx = 6 * sig * sqrt(T)/(2*Nj+1)
+    ebs <- theoretical.value - IFD.Eu(type,K,T,S,sig,r,div,N,Nj,dx) 
+  }
+  dt = T/N
+  cat("IFD method: N=",N,"Nj=",Nj,"dx=",dx,"dt=",dt)
+}
+cat("Call ",N.compute2EFD(type="C",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03))
+#cat("Put ",N.compute2EFD(type="P",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03))
+cat("Call ",N.compute2IFD(type="C",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03))
+#cat("Put ",N.compute2IFD(type="P",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03))
+```
+\textcolor{blue}{comments:} from the result, we can see that EFD method converges more faster than IFD method. I make put as a comment, because it runs too slow.
+
+## Question(f)
+```{r}
+plot.prob <- function(method,T,r,div,N,dx){
+ dt = T/N
+ pu=pm=pd=c()
+ if(method == "EFD"){
+   for(sig in seq(0.05,0.6,0.05)){
+     nu = r - div - 0.5 * sig^2
+     pu = c(pu,0.5*dt* ((sig/dx)^2 + nu/dx))
+     pm = c(pm,(1.0 - dt*(sig/dx)^2 - r*dt))
+     pd = c(pd,0.5*dt* ((sig/dx)^2 - nu/dx))
+   }
+ }
+if(method == "IFD"){
+   for(sig in seq(0.05,0.6,0.05)){
+     nu = r - div - 0.5 * sig^2
+     pu = c(pu,-0.5*dt* ((sig/dx)^2 + nu/dx))
+     pm = c(pm,(1.0 + dt*(sig/dx)^2 + r*dt))
+     pd = c(pd,-0.5*dt* ((sig/dx)^2 - nu/dx))
+   }
+ }
+ par(mfrow=c(1,3))
+ plot(pu)
+ plot(pm)
+ plot(pd)
+}
+plot.prob(method="EFD",T=1,r=0.06,div=0.03,N=1189,dx=0.01260504)
+plot.prob(method="IFD",T=1,r=0.06,div=0.03,N=1189,dx=0.01260504)
+```
+\textcolor{blue}{comment: } In EFD method, with the bigger sigma, pu and pd are getting bigger and bigger, but pm getting more and more small. In IFD method, with the bigger sigma, we have the opposite situation. pu and pd are getting more and more small, but pm are getting bigger.
+
+## Question(g)
+```{r}
+CNFD.Eu <- function(type,K,T,S,sig,r,div,N,Nj,dx){
+ #precompute constants
+ dt = T/N
+ nu = r - div - 0.5 * sig^2
+ edx=exp(-dx)
+ pu = -0.25*dt* ((sig/dx)^2 + nu/dx)
+ pm = 1.0 + 0.5*dt*(sig/dx)^2 + 0.5*r*dt
+ pd = -0.25*dt* ((sig/dx)^2 - nu/dx)
+
+ #initialise asset prices at marturity
+ St = array(0,dim=c(2*Nj+1))
+ St[1] = S * exp(Nj*dx)
+ for(j in 2:(2*Nj+1)){
+   St[j] = St[j-1]*edx
+ }
+
+ #initialise option values at marturity
+ C = array(0,dim = c(2,2*Nj+1))
+ for(j in 1:(2*Nj+1)){
+   if(type == "C")
+    C[1,j] = max(0, St[j] -K)
+   if(type == "P")
+    C[1,j] = max(0, K - St[j])
+ }
+ 
+ #compute derivative boundary condition
+ if(type == "C"){
+   lambda.U = St[1]-St[2]
+   lambda.L = 0.0
+ }
+ if(type == "P"){
+   lambda.L = -1*(St[2*Nj]-St[2*Nj+1])
+   lambda.U = 0.0
+ }
+ 
+ #step back at though latice
+ for(i in N:1){
+  #substitute boundary condition at j=-Nj into j=-Nj+1
+  pmp=pp=NULL
+  pmp[2*Nj] = pm +pd
+  pp[2*Nj] = -pu*C[1,2*Nj-1] -(pm-2)*C[1,2*Nj] - pd*C[1,2*Nj+1] + pd*lambda.L
+
+  #eliminate upper diagonal
+  for(j in (2*Nj-1):2){
+    pmp[j] = pm-pu*pd/pmp[j+1]
+    pp[j] = -pu*C[1,j-1]-(pm-2)*C[1,j]-pd*C[1,j+1]-pp[j+1]*pd/pmp[j+1]
+  } 
+  #print(pp)
+  #use boundary condition at j=Nj and equation at j=Nj-1
+  C[2,1] = (pp[2]+pmp[2]*lambda.U)/(pu+pmp[2])
+  C[2,2] = C[2,1]-lambda.U
+
+  #back substiatution
+  for(j in 3:(2*Nj+1)){
+    C[2,j] = (pp[j]-pu*C[2,j-1])/pmp[j]
+
+    if(is.na(C[2,j])){
+      C[2,j] <- C[1,j]
+    }
+  }
+  for(j in 1:(2*Nj+1)){
+    C[1,j] <- C[2,j]
+  }
+ }
+
+ C[1,Nj+1]
+}
+efdc <- EFD.Eu(type="C",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+               N=1189,Nj=59,dx=0.01260504)
+ifdc <- IFD.Eu(type="C",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+               N=1189,Nj=59,dx=0.01260504)
+cnfdc <- CNFD.Eu(type="C",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+                 N=1189,Nj=59,dx=0.01260504)
+efdp <- EFD.Eu(type="P",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+               N=1189,Nj=59,dx=0.01260504)
+ifdp <- IFD.Eu(type="P",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+               N=1189,Nj=59,dx=0.01260504)
+cnfdp <- CNFD.Eu(type="P",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+                 N=1189,Nj=59,dx=0.01260504)
+
+callprice <- c(efdc,ifdc,cnfdc)
+putprice <- c(efdp,ifdp,cnfdp)
+
+callprice <- matrix(callprice,ncol=1)
+colnames(callprice) <- c("call option value")
+rownames(callprice) <- c("EFD call","IFD call","CNFD call")
+callprice
+
+putprice <- matrix(putprice,ncol=1)
+colnames(putprice) <- c("put option value")
+rownames(putprice) <- c("EFD put","IFD put","CNFD put")
+putprice
+```
+\textcolor{blue}{comment: } from the table above, we can see that the price calculate by these three method are similar to each other.
+
+## Question(h)
+```{r}
+newEFD <- function(type,K,T,S,sig,r,div,N,Nj,dx){
+ #precompute constants
+ dt = T/N
+ nu = r - div - 0.5 * sig^2
+ edx = exp(-dx)
+ pu = 0.5*dt* ((sig/dx)^2 + nu/dx)
+ pm = 1.0 - dt*(sig/dx)^2 - r*dt
+ pd = 0.5*dt* ((sig/dx)^2 - nu/dx)
+
+ #initialise asset prices at marturity
+ St = array(0,dim=c(2*Nj+1))
+ St[1] = S * exp(Nj*dx)
+ for(j in 2:(2*Nj+1)){
+   St[j] = St[j-1]*edx
+ }
+
+ #initialise option values to marturity
+ C = array(0,dim = c(2,2*Nj+1))
+ for(j in 1:(2*Nj+1)){
+   if(type == "C")
+    C[1,j] = max(0, St[j] - K)
+   if(type == "P")
+    C[1,j] = max(0, K - St[j])
+ }
+
+ #step back at though latice
+ for(i in N:1){
+   for(j in 2:(2*Nj)){
+     C[2,j] = pu*C[1,j-1]+pm*C[1,j]+pd*C[1,j+1]
+   }
+   
+   #boundary conditions
+   if(type == "C"){
+     C[2,1] = C[2,2] + (St[1]-St[2])
+     C[2,2*Nj+1] = C[2,2*Nj] 
+   }
+   if(type == "P"){
+     C[2,1] = C[2,2] 
+     C[2,2*Nj+1] = C[2,2*Nj] + (St[2*Nj+1]-St[2*Nj])
+   }
+   for(j in 1:(2*Nj+1)){
+    C[1,j] <- C[2,j]
+   }
+ }
+ list(S=round(St,4),V=round(C,4))
+}
+
+S <- newEFD(type="C",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+            N=1189,Nj=59,dx=0.01260504)$S
+V <- newEFD(type="C",K=100,T=1,S=100,sig=0.25,r=0.06,div=0.03,
+            N=1189,Nj=59,dx=0.01260504)$V
+  
+# Delta
+delta <- function(Nj,V,S){
+  return((V[1,Nj+1]-V[1,Nj-1])/(S[Nj+1]-S[Nj-1]))
+}
+delta <- delta(59,V,S)
+
+# Gamma
+gamma <- function(Nj,V,S){
+  return(2*((V[1,Nj+1]-V[1,Nj])-(V[1,Nj]-V[1,Nj-1]))/(S[Nj+1]-S[Nj-1]))
+}
+gamma <- gamma(59,V,S)
+
+# Theta
+dt <- 1/1189
+C1 <- EFD.Eu(type="C",100,1+dt,100,0.25,0.06,0.03,1189,59,dx=0.01260504)
+C2 <- EFD.Eu(type="C",100,1,100,0.25,0.06,0.03,1189,59,dx=0.01260504)
+theta <- (C1-C2)/dt
+
+# Vega
+sigma <- 0.25
+delta.sig <- 0.001*sigma
+dx1 = 6 * (sigma+delta.sig) * sqrt(1)/(2*59+1)
+dx2 = 6 * (sigma-delta.sig) * sqrt(1)/(2*59+1)
+C1 <- EFD.Eu(type="C",100,1,100,sigma+delta.sig,0.06,0.03,1189,59,dx1)
+C2 <- EFD.Eu(type="C",100,1,100,sigma-delta.sig,0.06,0.03,1189,59,dx2)
+vega <- (C1-C2)/(2*delta.sig)
+
+DF <- data.frame(delta,gamma,theta,vega)
+DF
+```
+
+# Problem 2
+## Question(a)
+```{r}
+getwd() # get currency work directory
+#read data that download from Yahoo finance
+JPM1c <- read.csv("JPMCalls 170421.csv")
+JPM2c <- read.csv("JPMCalls 170519.csv")
+JPM3c <- read.csv("JPMCalls 170616.csv")
+JPM1p <- read.csv("JPMPuts 170421.csv")
+JPM2p <- read.csv("JPMPuts 170519.csv")
+JPM3p <- read.csv("JPMPuts 170616.csv")
+#calculate market price
+MPrice1c <- matrix((JPM1c$Bid + JPM1c$Ask)/2) #one month
+MPrice2c <- matrix((JPM2c$Bid + JPM2c$Ask)/2) #two month
+MPrice3c <- matrix((JPM3c$Bid + JPM3c$Ask)/2) #three month
+MPrice1p <- matrix((JPM1p$Bid + JPM1p$Ask)/2) #one month
+MPrice2p <- matrix((JPM2p$Bid + JPM2p$Ask)/2) #two month
+MPrice3p <- matrix((JPM3p$Bid + JPM3p$Ask)/2) #three month
+
+S0 <- 91.41 # Close price of JPM at 2017-03-07
+#strike price of JPM option
+K1c <- matrix(JPM1c$Strike) #one month
+K2c <- matrix(JPM2c$Strike) #two month
+K3c <- matrix(JPM3c$Strike) #three month
+K1p <- matrix(JPM1p$Strike) #one month
+K2p <- matrix(JPM2p$Strike) #two month
+K3p <- matrix(JPM3p$Strike) #three month
+#calculate time t of each option
+tau1 <- as.numeric(difftime("2017-04-21","2017-03-07",units = "days"))/365
+tau2 <- as.numeric(difftime("2017-05-19","2017-03-07",units = "days"))/365
+tau3 <- as.numeric(difftime("2017-06-16","2017-03-07",units = "days"))/365
+
+# Function to calculate opntion price by BS formular
+BS <- function(type, S0, K, tau, r, sigma,div){
+
+  d1 <- (log(S0/K)+(r-div+sigma^2/2)*tau) / (sigma*sqrt(tau)) 
+  d2 <- d1 - sigma*sqrt(tau)
+  if(type=="C"){
+    Price <- S0*exp(-div*tau)*pnorm(d1) - K*exp(-r*tau)*pnorm(d2)
+  }
+  if(type=="P"){
+    Price <- K*exp(-r*tau)*pnorm(-d2) - S0*exp(-div*tau)*pnorm(-d1)
+  }
+  return(Price)
+}
+#Function to calculate error between BS and Market price
+err <- function(type,S0,K,r,tau,sig,div,MPrice){
+    BS(type,S0,K,tau,r,sig,div) - MPrice
+}
+
+#Function to find BS Implied Vol using Bisection Method
+Ivol.BS <- function(type,S0, K, r,tau,div, MPrice){ 
+    sig <- c()
+#loop for every strike price and market price
+  for(i in 1:10){
+    a <- -0.001
+    b <- 2
+    c <- (a+b)/2
+#Loop until that the value of function to sigma is less than tolerance level 1e-4 
+    while(abs(b-a) > 1e-4){
+      fa <- err(type,S0,K[i],r,tau,a,div,MPrice[i])
+      fc <- err(type,S0,K[i],r,tau,c,div,MPrice[i])
+      if( fa * fc < 0)
+          b <- c
+      else
+          a <- c
+      c <- (a+b)/2
+    }
+   sig <- c(sig,c)
+  }
+  return(sig)
+}
+
+Imv1c <- Ivol.BS("C",S0,K1c,0.0075,tau1,0,MPrice1c) #one month
+Imv2c <- Ivol.BS("C",S0,K2c,0.0075,tau2,0,MPrice2c) #two month
+Imv3c <- Ivol.BS("C",S0,K3c,0.0075,tau3,0,MPrice3c) #three month
+Imv1p <- Ivol.BS("P",S0,K1p,0.0075,tau1,0,MPrice1p) #one month
+Imv2p <- Ivol.BS("P",S0,K2p,0.0075,tau2,0,MPrice2p) #two month
+Imv3p <- Ivol.BS("P",S0,K3p,0.0075,tau3,0,MPrice3p) #three month
+```
+
+## Question(b)
+```{r}
+dx.compute <- function(T,sig){
+  N = 2
+  Nj <- floor((6*sqrt(N/3)-1)/2)
+  dt = T/N
+  delta.x <- c()
+  for(i in 1:10){
+    dx = 6 * sig[i] * sqrt(T)/(2*Nj+1)
+    ebs <- dx^2 + dt
+    while(abs(ebs)>0.001){
+      N <- N+1
+      Nj <- floor((6*sqrt(N/3)-1)/2)
+      dt = T/N
+      dx = 6 * sig[i] * sqrt(T)/(2*Nj+1)
+      ebs <- dx^2 + dt
+    }
+    delta.x <- c(delta.x,dx)
+  }
+  cat("N=",N,"Nj=",Nj,"dx=",delta.x,"\n")
+  return(delta.x)
+}
+c1 <- dx.compute(T=tau1,sig=Imv1c)
+c2 <- dx.compute(T=tau2,sig=Imv2c)
+c3 <- dx.compute(T=tau3,sig=Imv3c)
+c1
+p1 <- dx.compute(T=tau1,sig=Imv1p)
+p2 <- dx.compute(T=tau2,sig=Imv2p)
+p3 <- dx.compute(T=tau3,sig=Imv3p)
+
+EFD.C1=EFD.P1=EFD.C2=EFD.P2=EFD.C3=EFD.P3=c()
+IFD.C1=IFD.P1=IFD.C2=IFD.P2=IFD.C3=IFD.P3=c() 
+CNFD.C1=CNFD.P1=CNFD.C2=CNFD.P2=CNFD.C3=CNFD.P3=c()
+
+for(i in 1:10){
+  #EFD
+  EFD.C1 <- c(EFD.C1,EFD.Eu(type="C",K=K1c[i],T=tau1,S=S0,sig=Imv1c[i],
+                            r=0.0075,div=0,N=184,Nj=22,dx=c1[i]))
+  EFD.P1 <- c(EFD.P1,EFD.Eu(type="P",K=K1p[i],T=tau1,S=S0,sig=Imv1p[i],
+                            r=0.0075,div=0,N=170,Nj=22,dx=p1[i]))
+  EFD.C2 <- c(EFD.C2,EFD.Eu(type="C",K=K2c[i],T=tau2,S=S0,sig=Imv2c[i],
+                            r=0.0075,div=0,N=252,Nj=26,dx=c2[i]))
+  EFD.P2 <- c(EFD.P2,EFD.Eu(type="P",K=K2p[i],T=tau2,S=S0,sig=Imv2p[i],
+                            r=0.0075,div=0,N=264,Nj=27,dx=p2[i]))
+  EFD.C3 <- c(EFD.C3,EFD.Eu(type="C",K=K3c[i],T=tau3,S=S0,sig=Imv3c[i],
+                            r=0.0075,div=0,N=387,Nj=33,dx=c3[i]))
+  EFD.P3 <- c(EFD.P3,EFD.Eu(type="P",K=K3p[i],T=tau3,S=S0,sig=Imv3p[i],
+                            r=0.0075,div=0,N=343,Nj=31,dx=p3[i]))
+  
+  #IFD
+  IFD.C1 <- c(IFD.C1,IFD.Eu(type="C",K=K1c[i],T=tau1,S=S0,sig=Imv1c[i],
+                            r=0.0075,div=0,N=184,Nj=22,dx=c1[i]))
+  IFD.P1 <- c(IFD.P1,IFD.Eu(type="P",K=K1p[i],T=tau1,S=S0,sig=Imv1p[i],
+                            r=0.0075,div=0,N=170,Nj=22,dx=p1[i]))
+  IFD.C2 <- c(IFD.C2,IFD.Eu(type="C",K=K2c[i],T=tau2,S=S0,sig=Imv2c[i],
+                            r=0.0075,div=0,N=252,Nj=26,dx=c2[i]))
+  IFD.P2 <- c(IFD.P2,IFD.Eu(type="P",K=K2p[i],T=tau2,S=S0,sig=Imv2p[i],
+                            r=0.0075,div=0,N=264,Nj=27,dx=p2[i]))
+  IFD.C3 <- c(IFD.C3,IFD.Eu(type="C",K=K3c[i],T=tau3,S=S0,sig=Imv3c[i],
+                            r=0.0075,div=0,N=387,Nj=33,dx=c3[i]))
+  IFD.P3 <- c(IFD.P3,IFD.Eu(type="P",K=K3p[i],T=tau3,S=S0,sig=Imv3p[i],
+                            r=0.0075,div=0,N=343,Nj=31,dx=p3[i]))
+  
+  #CNFD
+  CNFD.C1 <- c(CNFD.C1,CNFD.Eu(type="C",K=K1c[i],T=tau1,S=S0,sig=Imv1c[i],
+                               r=0.0075,div=0,N=184,Nj=22,dx=c1[i]))
+  CNFD.P1 <- c(CNFD.P1,CNFD.Eu(type="P",K=K1p[i],T=tau1,S=S0,sig=Imv1p[i],
+                               r=0.0075,div=0,N=170,Nj=22,dx=p1[i]))
+  CNFD.C2 <- c(CNFD.C2,CNFD.Eu(type="C",K=K2c[i],T=tau2,S=S0,sig=Imv2c[i],
+                               r=0.0075,div=0,N=252,Nj=26,dx=c2[i]))
+  CNFD.P2 <- c(CNFD.P2,CNFD.Eu(type="P",K=K2p[i],T=tau2,S=S0,sig=Imv2p[i],
+                               r=0.0075,div=0,N=264,Nj=27,dx=p2[i]))
+  CNFD.C3 <- c(CNFD.C3,CNFD.Eu(type="C",K=K3c[i],T=tau3,S=S0,sig=Imv3c[i],
+                               r=0.0075,div=0,N=387,Nj=33,dx=c3[i]))
+  CNFD.P3 <- c(CNFD.P3,CNFD.Eu(type="P",K=K3p[i],T=tau3,S=S0,sig=Imv3p[i],
+                               r=0.0075,div=0,N=343,Nj=31,dx=p3[i]))
+}
+
+EFD.C <- c(EFD.C1,EFD.C2,EFD.C3)
+EFD.P <- c(EFD.P1,EFD.P2,EFD.P3)
+IFD.C <- c(IFD.C1,IFD.C2,IFD.C3)
+IFD.P <- c(IFD.P1,IFD.P2,IFD.P3)
+CNFD.C <- c(CNFD.C1,CNFD.C2,CNFD.C3)
+CNFD.P <- c(CNFD.P1,CNFD.P2,CNFD.P3)
+
+DF <- data.frame(EFD.C,EFD.P,IFD.C,IFD.P,CNFD.C,CNFD.P)
+DF
+```
+
+## Question(c)
+```{r}
+S1c=V1c=S2c=V2c=S3c=V3c=c()
+S1p=V1p=S2p=V2p=S3p=V3p=c()
+v1.c1=v1.c2=v1.c3=v1.p1=v1.p2=v1.p3=c()
+v2.c1=v2.c2=v2.c3=v2.p1=v2.p2=v2.p3=c()
+for(i in 1:10){
+  S1c <- c(S1c,newEFD(type="C",K=K1c[i],T=tau1,S=S0,sig=Imv1c[i],r=0.0075,div=0.0,
+              N=184,Nj=22,dx=c1[i])$S[23]-newEFD(type="C",K=K1c[i],T=tau1,S=S0,    
+sig=Imv1c[i],r=0.0075,div=0.0,N=184,Nj=22,dx=c1[i])$S[21])
+  V1c <- c(V1c,newEFD(type="C",K=K1c[i],T=tau1,S=S0,sig=Imv1c[i],r=0.0075,div=0.0,
+              N=184,Nj=22,dx=c1[i])$V[1,23]-newEFD(type="C",K=K1c[i],T=tau1,S=S0,
+sig=Imv1c[i],r=0.0075,div=0.0,N=184,Nj=22,dx=c1[i])$V[1,21])
+  v1.c1 <- c(v1.c1,newEFD(type="C",K=K1c[i],T=tau1,S=S0,sig=Imv1c[i],r=0.0075,div=0.0,
+              N=184,Nj=22,dx=c1[i])$V[1,23]-newEFD(type="C",K=K1c[i],T=tau1,S=S0,
+sig=Imv1c[i],r=0.0075,div=0.0,N=184,Nj=22,dx=c1[i])$V[1,22])
+  v2.c1 <- c(v2.c1,newEFD(type="C",K=K1c[i],T=tau1,S=S0,sig=Imv1c[i],r=0.0075,div=0.0,
+              N=184,Nj=22,dx=c1[i])$V[1,22]-newEFD(type="C",K=K1c[i],T=tau1,S=S0,
+sig=Imv1c[i],r=0.0075,div=0.0,N=184,Nj=22,dx=c1[i])$V[1,21])
+  
+  S2c <- c(S2c,newEFD(type="C",K=K2c[i],T=tau2,S=S0,sig=Imv2c[i],r=0.0075,div=0.0,
+              N=252,Nj=26,dx=c2[i])$S[27]-newEFD(type="C",K=K2c[i],T=tau2,S=S0,
+sig=Imv2c[i],r=0.0075,div=0.0,N=252,Nj=26,dx=c2[i])$S[25])
+  V2c <- c(V2c,newEFD(type="C",K=K2c[i],T=tau2,S=S0,sig=Imv2c[i],r=0.0075,div=0.0,
+              N=252,Nj=26,dx=c2[i])$V[1,27]-newEFD(type="C",K=K2c[i],T=tau2,S=S0,
+sig=Imv2c[i],r=0.0075,div=0.0,N=252,Nj=26,dx=c2[i])$V[1,25])
+  v1.c2 <- c(v1.c2,newEFD(type="C",K=K2c[i],T=tau2,S=S0,sig=Imv2c[i],r=0.0075,div=0.0,
+              N=252,Nj=26,dx=c2[i])$V[1,27]-newEFD(type="C",K=K2c[i],T=tau2,S=S0,
+sig=Imv2c[i],r=0.0075,div=0.0,N=252,Nj=26,dx=c2[i])$V[1,26])
+  v2.c2 <- c(v2.c2,newEFD(type="C",K=K2c[i],T=tau2,S=S0,sig=Imv2c[i],r=0.0075,div=0.0,
+              N=252,Nj=26,dx=c2[i])$V[1,26]-newEFD(type="C",K=K2c[i],T=tau2,S=S0,
+sig=Imv2c[i],r=0.0075,div=0.0,N=252,Nj=26,dx=c2[i])$V[1,25])
+  
+  S3c <- c(S3c,newEFD(type="C",K=K3c[i],T=tau3,S=S0,sig=Imv3c[i],r=0.0075,div=0.0,
+              N=387,Nj=33,dx=c3[i])$S[34]-newEFD(type="C",K=K3c[i],T=tau3,S=S0,
+sig=Imv3c[i],r=0.0075,div=0.0,N=387,Nj=33,dx=c3[i])$S[32])
+  V3c <- c(V3c,newEFD(type="C",K=K3c[i],T=tau3,S=S0,sig=Imv3c[i],r=0.0075,div=0.0,
+              N=387,Nj=33,dx=c3[i])$V[1,34]-newEFD(type="C",K=K3c[i],T=tau3,S=S0,
+sig=Imv3c[i],r=0.0075,div=0.0,N=387,Nj=33,dx=c3[i])$V[1,32])
+  v1.c3 <- c(v1.c3,newEFD(type="C",K=K3c[i],T=tau3,S=S0,sig=Imv3c[i],r=0.0075,div=0.0,
+              N=387,Nj=33,dx=c3[i])$V[1,34]-newEFD(type="C",K=K3c[i],T=tau3,S=S0,
+sig=Imv3c[i],r=0.0075,div=0.0,N=387,Nj=33,dx=c3[i])$V[1,33])
+  v2.c3 <- c(v2.c3,newEFD(type="C",K=K3c[i],T=tau3,S=S0,sig=Imv3c[i],r=0.0075,div=0.0,
+              N=387,Nj=33,dx=c3[i])$V[1,33]-newEFD(type="C",K=K3c[i],T=tau3,S=S0,
+sig=Imv3c[i],r=0.0075,div=0.0,N=387,Nj=33,dx=c3[i])$V[1,32])
+}
+  
+for(i in 1:10){  
+  S1p <- c(S1p,newEFD(type="P",K=K1p[i],T=tau1,S=S0,sig=Imv1p[i],r=0.0075,div=0.0,
+              N=170,Nj=22,dx=p1[i])$S[23]-newEFD(type="P",K=K1p[i],T=tau1,S=S0,
+sig=Imv1p[i],r=0.0075,div=0.0,N=170,Nj=22,dx=p1[i])$S[21])
+  V1p <- c(V1p,newEFD(type="P",K=K1p[i],T=tau1,S=S0,sig=Imv1p[i],r=0.0075,div=0.0,
+              N=170,Nj=22,dx=p1[i])$V[1,23]-newEFD(type="P",K=K1p[i],T=tau1,S=S0,
+sig=Imv1p[i],r=0.0075,div=0.0,N=170,Nj=22,dx=p1[i])$V[1,21])
+  v1.p1 <- c(v1.p1,newEFD(type="P",K=K1p[i],T=tau1,S=S0,sig=Imv1p[i],r=0.0075,div=0.0,
+              N=170,Nj=22,dx=p1[i])$V[1,23]-newEFD(type="P",K=K1p[i],T=tau1,S=S0,
+sig=Imv1p[i],r=0.0075,div=0.0,N=170,Nj=22,dx=p1[i])$V[1,22])
+  v2.p1 <- c(v2.p2,newEFD(type="P",K=K1p[i],T=tau1,S=S0,sig=Imv1p[i],r=0.0075,div=0.0,
+              N=170,Nj=22,dx=p1[i])$V[1,22]-newEFD(type="P",K=K1p[i],T=tau1,S=S0,
+sig=Imv1p[i],r=0.0075,div=0.0,N=170,Nj=22,dx=p1[i])$V[1,21])
+  
+  S2p <- c(S2p,newEFD(type="P",K=K2p[i],T=tau2,S=S0,sig=Imv2p[i],r=0.0075,div=0.0,
+              N=264,Nj=27,dx=p2[i])$S[28]-newEFD(type="P",K=K2p[i],T=tau2,S=S0,
+sig=Imv2p[i],r=0.0075,div=0.0,N=264,Nj=27,dx=p2[i])$S[26])
+  V2p <- c(V2p,newEFD(type="P",K=K2p[i],T=tau2,S=S0,sig=Imv2p[i],r=0.0075,div=0.0,
+              N=264,Nj=27,dx=p2[i])$V[1,28]-newEFD(type="P",K=K2p[i],T=tau2,S=S0,
+sig=Imv2p[i],r=0.0075,div=0.0,N=264,Nj=27,dx=p2[i])$V[1,26])
+  v1.p2 <- c(v1.p2,newEFD(type="P",K=K2p[i],T=tau2,S=S0,sig=Imv2p[i],r=0.0075,div=0.0,
+              N=264,Nj=27,dx=p2[i])$V[1,28]-newEFD(type="P",K=K2p[i],T=tau2,S=S0,
+sig=Imv2p[i],r=0.0075,div=0.0,N=264,Nj=27,dx=p2[i])$V[1,27])
+  v2.p2 <- c(v2.p2,newEFD(type="P",K=K2p[i],T=tau2,S=S0,sig=Imv2p[i],r=0.0075,div=0.0,
+              N=264,Nj=27,dx=p2[i])$V[1,27]-newEFD(type="P",K=K2p[i],T=tau2,S=S0,
+sig=Imv2p[i],r=0.0075,div=0.0,N=264,Nj=27,dx=p2[i])$V[1,26])
+  
+  S3p <- c(S3p,newEFD(type="P",K=K3p[i],T=tau3,S=S0,sig=Imv3p[i],r=0.0075,div=0.0,
+              N=343,Nj=31,dx=p3[i])$S[32]-newEFD(type="P",K=K3p[i],T=tau3,S=S0,
+sig=Imv3p[i],r=0.0075,div=0.0,N=343,Nj=31,dx=p3[i])$S[30])
+  V3p <- c(V3p,newEFD(type="P",K=K3p[i],T=tau3,S=S0,sig=Imv3p[i],r=0.0075,div=0.0,
+              N=343,Nj=31,dx=p3[i])$V[1,32]-newEFD(type="P",K=K3p[i],T=tau3,S=S0,
+sig=Imv3p[i],r=0.0075,div=0.0,N=343,Nj=31,dx=p3[i])$V[1,30])
+  v1.p3 <- c(v1.p3,newEFD(type="P",K=K3p[i],T=tau3,S=S0,sig=Imv3p[i],r=0.0075,div=0.0,
+              N=343,Nj=31,dx=p3[i])$V[1,32]-newEFD(type="P",K=K3p[i],T=tau3,S=S0,
+sig=Imv3p[i],r=0.0075,div=0.0,N=343,Nj=31,dx=p3[i])$V[1,31])
+  v2.p3 <- c(v2.p3,newEFD(type="P",K=K3p[i],T=tau3,S=S0,sig=Imv3p[i],r=0.0075,div=0.0,
+              N=343,Nj=31,dx=p3[i])$V[1,31]-newEFD(type="P",K=K3p[i],T=tau3,S=S0,
+sig=Imv3p[i],r=0.0075,div=0.0,N=343,Nj=31,dx=p3[i])$V[1,30])
+}
+
+# Delta
+delta <- function(V,S){
+  return(V/S)
+}
+delta1c <- delta(V1c,S1c)
+delta2c <- delta(V2c,S2c)
+delta3c <- delta(V3c,S3c)
+delta1p <- delta(V1p,S1p)
+delta2p <- delta(V2p,S2p)
+delta3p <- delta(V3p,S3p)
+
+# Gamma
+gamma <- function(V1,V2,S){
+  return(2*(V1-V2)/S)
+}
+gamma1c <- gamma(v1.c1,v2.c1,S1c)
+gamma2c <- gamma(v1.c2,v2.c2,S2c)
+gamma3c <- gamma(v1.c3,v2.c3,S3c)
+gamma1p <- gamma(v1.p1,v2.p1,S1p)
+gamma2p <- gamma(v1.p2,v2.p2,S2p)
+gamma3p <- gamma(v1.p3,v2.p3,S3p)
+
+# Theta
+theta <- function(type,K,T,S,sig,r,div,N,Nj,dx){
+  dt=T/N
+  x <- c()
+  for(i in 1:10){
+  a <- (EFD.Eu(type,K[i],T+dt,S,sig[i],r,div,N,Nj,dx[i])-
+            EFD.Eu(type,K[i],T,S,sig[i],r,div,N,Nj,dx[i]))/dt
+  x <- c(x,a)
+  }
+  return(x)
+}
+theta1c <- theta(type="C",K=K1c,T=tau1,S=S0,sig=Imv1c,r=0.0075,div=0.0,
+                 N=184,Nj=22,dx=c1)
+theta2c <- theta(type="C",K=K2c,T=tau2,S=S0,sig=Imv2c,r=0.0075,div=0.0,
+                 N=252,Nj=26,dx=c2)
+theta3c <- theta(type="C",K=K3c,T=tau3,S=S0,sig=Imv3c,r=0.0075,div=0.0,
+                 N=387,Nj=33,dx=c3)
+theta1p <- theta(type="P",K=K1c,T=tau1,S=S0,sig=Imv1p,r=0.0075,div=0.0,
+                 N=170,Nj=22,dx=p1)
+theta2p <- theta(type="P",K=K1c,T=tau2,S=S0,sig=Imv2p,r=0.0075,div=0.0,
+                 N=264,Nj=27,dx=p2)
+theta3p <- theta(type="P",K=K1c,T=tau3,S=S0,sig=Imv3p,r=0.0075,div=0.0,
+                 N=343,Nj=31,dx=p3)
+
+# Vega
+vega <- function(type,K,T,S,sig,r,div,N,Nj){
+  delta.sig=dx1=dx2=C1=C2=x=c()
+  for(i in 1:10){
+    delta.sig <- c(delta.sig,0.001*sig[i])
+    dx1 = c(dx1,6 * (sig[i]+delta.sig[i]) * sqrt(T)/(2*Nj+1))
+    dx2 = c(dx2,6 * (sig[i]-delta.sig[i]) * sqrt(T)/(2*Nj+1))
+    C1 <- c(C1,EFD.Eu(type,K[i],T,S,sig[i]+delta.sig[i],r,div,N,Nj,dx1[i]))
+    C2 <- c(C2,EFD.Eu(type,K[i],T,S,sig[i]-delta.sig[i],r,div,N,Nj,dx2[i]))
+    x <- c(x,(C1[i]-C2[i])/(2*delta.sig[i]))
+  }
+  return(x)
+}
+vega1c <- vega(type="C",K=K1c,T=tau1,S=S0,sig=Imv1c,r=0.0075,div=0.0,
+                 N=184,Nj=22)
+vega2c <- vega(type="C",K=K2c,T=tau2,S=S0,sig=Imv2c,r=0.0075,div=0.0,
+                 N=252,Nj=26)
+vega3c <- vega(type="C",K=K3c,T=tau3,S=S0,sig=Imv3c,r=0.0075,div=0.0,
+                 N=387,Nj=33)
+vega1p <- vega(type="P",K=K1c,T=tau1,S=S0,sig=Imv1p,r=0.0075,div=0.0,
+                 N=170,Nj=22)
+vega2p <- vega(type="P",K=K1c,T=tau2,S=S0,sig=Imv2p,r=0.0075,div=0.0,
+                 N=264,Nj=27)
+vega3p <- vega(type="P",K=K1c,T=tau3,S=S0,sig=Imv3p,r=0.0075,div=0.0,
+                 N=343,Nj=31)
+
+delta.c <- c(delta1c,delta2c,delta3c)
+delta.p <- c(delta1p,delta2p,delta3p)
+gamma.c <- c(gamma1c,gamma2c,gamma3c)
+gamma.p <- c(gamma1p,gamma2p,gamma3p)
+theta.c <- c(theta1c,theta2c,theta3c)
+theta.p <- c(theta1p,theta2p,theta3p)
+vega.c <- c(vega1c,vega2c,vega3c)
+vega.p <- c(vega1p,vega2p,vega3p)
+
+#Greeks for call option
+DF1 <- data.frame(delta.c,gamma.c,theta.c,vega.c)
+DF1
+
+#Greeks for put option
+DF2 <- data.frame(delta.p,gamma.p,theta.p,vega.p)
+DF2
+```
+
+## Question(d)
+```{r}
+MPrice.C <- c(MPrice1c,MPrice2c,MPrice3c)
+MPrice.P <- c(MPrice1p,MPrice2p,MPrice3p)
+
+strikec <- c(K1c,K2c,K3c)
+strikep <- c(K1p,K2p,K3p)
+
+par(mfrow=c(1,2))
+plot(strikec,MPrice.C,typ="b", col="blue", main=c("Option Pricing"),
+     xlab="Strike Price", ylab="Option Price")
+lines(strikec,EFD.C,col = "red")
+lines(strikec,IFD.C.col = "green")
+lines(strikec,CNFD.C)
+
+plot(strikep,MPrice.P,typ="b", col="blue", main=c("Option Pricing"),
+     xlab="Strike Price", ylab="Option Price")
+lines(strikep,EFD.P,col = "red")
+lines(strikep,IFD.P.col = "green")
+lines(strikep,CNFD.P)
+```
+
+
+#problem 3
+```{r}
+library(pracma)
+HestonExplicitPDE <- function(params,K,r,div,S,V,Tm) {
+    
+    # Finite differences for the Heston PDE for a European Call
+    #  Uses even grid sizes
+    #  In 'T Hout and Foulon "ADI Finite Difference Schemes for Option Pricing
+    #  in the Heston Modelo with Correlation" Int J of Num Analysis and Modeling, 2010.
+    #  Thesis by Sensi Li and paper by Vassilis Galiotos
+    #  INPUTS
+    #     params = 6x1 vector of Heston parameters
+    #     K = Strike price
+    #     r = risk free rate
+    #     div = Dividend yield
+    #     S = vector for stock price grid
+    #     V = vector for volatility grid
+    #     Tm = vector for maturity grid
+    # OUTPUT
+    #     2-D array of size (nS+1)x(nV+1) for the call price
+    
+    # Heston parameters
+    kappa = params[1];
+    theta = params[2];
+    sigma = params[3];
+    v0    = params[4];
+    rho   = params[5];
+    lambda = params[6];
+    
+    # Length of stock, volatility, and maturity
+    NS = length(S)
+    NV = length(V)
+    NT = length(Tm)
+    Smin = S[1];  Smax = S[NS];
+    Vmin = V[1];  Vmax = V[NV];
+    Tmin = Tm[1];  Tmax = Tm[NT];
+    
+    # Increment for Stock Price, Volatility, and Maturity
+    ds = (Smax-Smin)/(NS-1);
+    dv = (Vmax-Vmin)/(NV-1);
+    dt = (Tmax-Tmin)/(NT-1);
+    
+    # Initialize the 2-D grid with zeros
+    U = matrix(0, nrow=NS, ncol=NV);
+    
+    # Temporary grid for previous time steps
+    u = matrix(0, nrow=NS, ncol=NV);
+    
+    # Solve the PDE
+    # Round each value of U(S,v,Tm) at each step
+    # Boundary condition for tm = Maturity
+    for (s in 1:NS) {
+        for (v in 1:NV) {
+            U[s,v] = max(S[s] - K, 0);
+        }
+    }
+    # Boundary Conditions for everything else
+    for (tm in 1:(NT-1))  {
+        # Boundary condition for Smin and Smax
+        for (v in 1:(NV-1)) {
+            U[1,v] = 0
+            U[NS,v] = max(0, Smax - K); # Galiotos uses U(NS-1,v) + ds;
+        }
+        # Boundary condition for Vmax
+        for (s in 1:NS) {
+           U[s,NV] = max(0, S[s] - K); # Galiotos uses U(s,NV-1);
+  }
+  # Update temp grid u[s,tm] with the boundary conditions
+  u = U
+  # Boundary condition for Vmin
+  # Previous time step values are in the temporary grid u(s,tm)
+  for (s in 2:(NS-1)) {
+    DerV = (u[s,2] - u[s,1]) / dv;
+    # PDE Points on the middle of the grid (non boundary)
+    DerS = (u[s+1,1] - u[s-1,1])/2/ds;
+    # Central difference for dU/dS
+    U[s,1] = u[s,1]*(1 - r*dt - kappa*theta*dt/dv) +
+    dt*0.5*(r-div)*(s-1)*( u[s+1,1] - u[s-1,1] ) + 
+    kappa*theta*dt/dv*u[s,2]
+  }
+  # Update the temporary grid u(s,tm) with the boundary conditions
+  u = U
+  # Interior points of the grid (non boundary)
+  # Previous time step values are in the temporary grid u(s,tm)
+  for (s in 2:(NS-1)) {
+     for (v in 2:(NV-1)) {
+     A = (1 - dt*(s-1)^2*(v-1)*dv - sigma^2*(v-1)*dt/dv - r*dt);
+     B = (1/2*dt*(s-1)^2*(v-1)*dv - 1/2*dt*(r-div)*(s-1));
+     CC = (1/2*dt*(s-1)^2*(v-1)*dv + 1/2*dt*(r-div)*(s-1));
+     D = (1/2*dt*sigma^2*(v-1)/dv - 1/2*dt*kappa*(theta-(v-1)*dv)/dv);
+     E = (1/2*dt*sigma^2*(v-1)/dv + 1/2*dt*kappa*(theta-(v-1)*dv)/dv);
+     F = 1/4*dt*sigma*(s-1)*(v-1)*rho;
+     U[s,v] = A*u[s,v] + B*u[s-1,v] + CC*u[s+1,v] +
+     D*u[s,v-1] + E*u[s,v+1] + F*(u[s+1,v+1]+u[s-1,v-1]-u[s-1,v+1]-u[s+1,v-1])
+     }
+  }
+ }
+ # Return 2-D array of size (nS+1)x(nV+1)
+   U
+}
+#function return price
+runHeston <- function(S0 = 1, K = 0.5, Mat = 5, r = 0, div = 0, v0 = 0.1,
+         kappa = 2, theta = 0.1, sigma = 0.2, rho = -0.3, lambda = 0)
+{ 
+   #parameter vector
+   params = c(kappa, theta, sigma, v0, rho, lambda)
+    #set min and max of asset price, volatility and maturity
+   Smin = 0; Smax = 2*K;
+   Vmin = 0; Vmax = 2*sigma;
+   Tmin = 0; Tmax = Mat;
+   #set number of grids
+   NS = 40 # grid number of price
+   NV = 40 # grid number of volatility
+   NT = 1000 # grid number of maturity
+   
+   # The maturity time increment and grid
+   dt = (Tmax-Tmin)/(NT-1);
+   Tm = (0:(NT-1))*dt;
+   
+   # The asset price increment and grid
+   ds = (Smax-Smin)/(NS-1);
+   S = (0:(NS-1)) * ds;
+   #The volatility increment and grid
+   dv = (Vmax-Vmin)/(NV-1);
+   V = (0:(NV-1)) * dv;
+   # Solve the PDE
+   U=HestonExplicitPDE(params,K,r,div,S,V,Tm);
+   # return Call option price using interpolation method
+   Call = interp2(V, S, U, v0,S0);
+   #return Put option using call-put parity
+   Put = Call - S0*exp(-div*Mat) + K*exp(-r*Mat);
+   #Return both call and put 
+   result = c(Call, Put);
+   return(result)
+}
+price1 <- runHeston(K=0.5)
+price2 <- runHeston(K=0.75)
+price3 <- runHeston(K=1)
+price4 <- runHeston(K=1.25)
+price5 <- runHeston(K=1.5)
+#cat("K=0.5",price1,"\n","K=0.75",price2,"\n","K=1",price3,"\n",
+#    "K=1.25",price4,"\n","K=1.5",price5)
+```
+\textcolor{blue}{comment: } because the code knit too slow, I list the result with kappa = 2 as follow:
+call option: k=0.5, price1=0.5; k=0.75, price2=0.3699448; k=1,price3=0.2674649;k=1.25,price4=0.1931855; k=1.5,price5=0.1401597;
+put option: k=0.5, price1=0.5; k=0.75, price2=0.1199450; k=1,price3=0.2674650;k=1.25,price4=0.4431853; k=1.5,price5=0.6401597;

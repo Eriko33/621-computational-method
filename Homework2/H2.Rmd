@@ -1,0 +1,509 @@
+---
+title: "Homework2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Problem 1
+
+## Question(a)
+```{r}
+#Binomial Tree: j Times, j+1 nodes
+Bino.tree <- function(isCall, isAmerican, K, T, S0, r, sig, N)
+{
+  # Precompute constants
+  dt = T/N
+  u = exp((r-1/2*sig^2)*dt + sig*sqrt(dt))
+  d = 1/u
+  p = (exp(r*dt)-d)/(u-d) #probabilities
+  disc = exp(-r*dt) #discount
+  M = N+1 #number of nodes
+  cp = ifelse(isCall, 1, -1)
+  
+  # Intialize asset prices
+  V = S = matrix(0, nrow=M, ncol=M)
+  S[1,1] = S0
+  #construct a asset binomial tree
+  for (j in 2:M) {
+      S[1, j] = S[1, j-1]*u
+      for(i in 2:j) {
+        S[i, j] = S[i-1, j-1]*d
+      }
+  }
+  
+  # Intialize option values at maturity
+  for (j in 1:M) {
+    V[M-j+1, M] = max( 0, cp * (S[M-j+1, M]-K))
+  }
+  
+  # Step backwards through the tree
+  for (j in (M-1):1) {
+    for (i in 1:j) {
+        V[i, j] = disc * ( p*V[i, j+1] + (1-p)*V[i+1, j+1] )
+        if(isAmerican) {
+            V[i, j] = max(V[i, j], cp * (S[i, j] - K))
+        }
+    }
+  }
+
+  # Return the price ----
+  V[1,1]
+}
+```
+
+## Question(b)
+```{r}
+getwd() # get currency work directory
+#read data that download from Yahoo finance
+JPM1c <- read.csv("JPMCalls 170421.csv")
+JPM2c <- read.csv("JPMCalls 170519.csv")
+JPM3c <- read.csv("JPMCalls 170616.csv")
+JPM1p <- read.csv("JPMPuts 170421.csv")
+JPM2p <- read.csv("JPMPuts 170519.csv")
+JPM3p <- read.csv("JPMPuts 170616.csv")
+#calculate market price
+MPrice1c <- matrix((JPM1c$Bid + JPM1c$Ask)/2) #one month
+MPrice2c <- matrix((JPM2c$Bid + JPM2c$Ask)/2) #two month
+MPrice3c <- matrix((JPM3c$Bid + JPM3c$Ask)/2) #three month
+MPrice1p <- matrix((JPM1p$Bid + JPM1p$Ask)/2) #one month
+MPrice2p <- matrix((JPM2p$Bid + JPM2p$Ask)/2) #two month
+MPrice3p <- matrix((JPM3p$Bid + JPM3p$Ask)/2) #three month
+
+S0 <- 91.41 # Close price of JPM at 2017-03-07
+#strike price of JPM option
+K1c <- matrix(JPM1c$Strike) #one month
+K2c <- matrix(JPM2c$Strike) #two month
+K3c <- matrix(JPM3c$Strike) #three month
+K1p <- matrix(JPM1p$Strike) #one month
+K2p <- matrix(JPM2p$Strike) #two month
+K3p <- matrix(JPM3p$Strike) #three month
+#calculate time t of each option
+tau1 <- as.numeric(difftime("2017-04-21","2017-03-07",units = "days"))/365
+tau2 <- as.numeric(difftime("2017-05-19","2017-03-07",units = "days"))/365
+tau3 <- as.numeric(difftime("2017-06-16","2017-03-07",units = "days"))/365
+
+# Function to calculate opntion price by BS formular
+BS <- function(type, S0, K, tau, r, sigma,div){
+
+  d1 <- (log(S0/K)+(r-div+sigma^2/2)*tau) / (sigma*sqrt(tau)) 
+  d2 <- d1 - sigma*sqrt(tau)
+  if(type=="C"){
+    Price <- S0*exp(-div*tau)*pnorm(d1) - K*exp(-r*tau)*pnorm(d2)
+  }
+  if(type=="P"){
+    Price <- K*exp(-r*tau)*pnorm(-d2) - S0*exp(-div*tau)*pnorm(-d1)
+  }
+  return(Price)
+}
+#Function to calculate error between BS and Market price
+err <- function(type,S0,K,r,tau,sig,div,MPrice){
+    BS(type,S0,K,tau,r,sig,div) - MPrice
+}
+
+#Function to find BS Implied Vol using Bisection Method
+Ivol.BS <- function(type,S0, K, r,tau,div, MPrice){ 
+    sig <- c()
+#loop for every strike price and market price
+  for(i in 1:10){
+    a <- -0.001
+    b <- 2
+    c <- (a+b)/2
+#Loop until that the value of function to sigma is less than tolerance level 1e-4 
+    while(abs(b-a) > 1e-4){
+      fa <- err(type,S0,K[i],r,tau,a,div,MPrice[i])
+      fc <- err(type,S0,K[i],r,tau,c,div,MPrice[i])
+      if( fa * fc < 0)
+          b <- c
+      else
+          a <- c
+      c <- (a+b)/2
+    }
+   sig <- c(sig,c)
+  }
+  return(sig)
+}
+
+Imv1c <- Ivol.BS("C",S0,K1c,0.0075,tau1,0,MPrice1c) #one month
+Imv2c <- Ivol.BS("C",S0,K2c,0.0075,tau2,0,MPrice2c) #two month
+Imv3c <- Ivol.BS("C",S0,K3c,0.0075,tau3,0,MPrice3c) #three month
+Imv1p <- Ivol.BS("P",S0,K1p,0.0075,tau1,0,MPrice1p) #one month
+Imv2p <- Ivol.BS("P",S0,K2p,0.0075,tau2,0,MPrice2p) #two month
+Imv3p <- Ivol.BS("P",S0,K3p,0.0075,tau3,0,MPrice3p) #three month
+
+#European Call&Put
+JPMEC1 <- c()
+JPMEC2 <- c()
+JPMEC3 <- c()
+JPMEP1 <- c()
+JPMEP2 <- c()
+JPMEP3 <- c()
+JPMAC1 <- c()
+JPMAC2 <- c()
+JPMAC3 <- c()
+JPMAP1 <- c()
+JPMAP2 <- c()
+JPMAP3 <- c()
+for(i in 1:10){
+  a1 <- Bino.tree(isCall=T, isAmerican=F,K1c[i],tau1,S0,0.0075,Imv1c[i],200) #one month
+  a2 <- Bino.tree(isCall=T, isAmerican=F,K2c[i],tau2,S0,0.0075,Imv2c[i],200) #two month
+  a3 <- Bino.tree(isCall=T, isAmerican=F,K3c[i],tau3,S0,0.0075,Imv3c[i],200) #three month
+  b1 <- Bino.tree(isCall=F, isAmerican=F,K1p[i],tau1,S0,0.0075,Imv1p[i],200) #one month 
+  b2 <- Bino.tree(isCall=F, isAmerican=F,K2p[i],tau2,S0,0.0075,Imv2p[i],200) #two month
+  b3 <- Bino.tree(isCall=F, isAmerican=F,K3p[i],tau3,S0,0.0075,Imv3p[i],200) #three month
+#American Call&Put
+  c1 <- Bino.tree(isCall=T, isAmerican=T,K1c[i],tau1,S0,0.0075,Imv1c[i],200) #one month 
+  c2 <- Bino.tree(isCall=T, isAmerican=T,K2c[i],tau2,S0,0.0075,Imv2c[i],200) #two month
+  c3 <- Bino.tree(isCall=T, isAmerican=T,K3c[i],tau3,S0,0.0075,Imv3c[i],200) #three month
+  d1 <- Bino.tree(isCall=F, isAmerican=T,K1p[i],tau1,S0,0.0075,Imv1p[i],200) #one month 
+  d2 <- Bino.tree(isCall=F, isAmerican=T,K2p[i],tau2,S0,0.0075,Imv2p[i],200) #two month
+  d3 <- Bino.tree(isCall=F, isAmerican=T,K3p[i],tau3,S0,0.0075,Imv3p[i],200) #three month
+
+  JPMEC1 <- c(JPMEC1,a1)
+  JPMEC2 <- c(JPMEC2,a2)
+  JPMEC3 <- c(JPMEC3,a3)
+  JPMEP1 <- c(JPMEP1,b1)
+  JPMEP2 <- c(JPMEP2,b2)
+  JPMEP3 <- c(JPMEP3,b3)
+  JPMAC1 <- c(JPMAC1,c1)
+  JPMAC2 <- c(JPMAC2,c2)
+  JPMAC3 <- c(JPMAC3,c3)
+  JPMAP1 <- c(JPMAP1,d1)
+  JPMAP2 <- c(JPMAP2,d2)
+  JPMAP3 <- c(JPMAP3,d3)
+}
+binomial.JPMEC <- c(JPMEC1,JPMEC2,JPMEC3)
+binomial.JPMEP <- c(JPMEP1,JPMEP2,JPMEP3)
+binomial.JPMAC <- c(JPMAC1,JPMAC2,JPMAC3)
+binomial.JPMAP <- c(JPMAP1,JPMAP2,JPMAP3)
+
+#European Call&Put price by BS method
+JPMC1 <- BS("C",S0, K1c, tau1, 0.0075, Imv1c,0)
+JPMC2 <- BS("C",S0, K2c, tau2, 0.0075, Imv2c,0)
+JPMC3 <- BS("C",S0, K3c, tau3, 0.0075, Imv3c,0)
+JPMP1 <- BS("P",S0, K1p, tau1, 0.0075, Imv1p,0)
+JPMP2 <- BS("P",S0, K2p, tau2, 0.0075, Imv2p,0)
+JPMP3 <- BS("P",S0, K3p, tau3, 0.0075, Imv3p,0)
+
+BS.JPMEC <- c(JPMC1,JPMC2,JPMC3)
+BS.JPMEP <- c(JPMP1,JPMP2,JPMP3)
+CMarketPrice <- c(MPrice1c,MPrice2c,MPrice3c)
+PMarketPrice <- c(MPrice1p,MPrice2p,MPrice3p)
+strikec <- c(K1c,K2c,K3c)
+strikep <- c(K1p,K2p,K3p)
+
+par(mfrow=c(1,2))
+plot(strikec,binomial.JPMEC,typ="b", col="blue", main=c("Option Pricing"),
+     xlab="Strike Price", ylab="Option Price")
+lines(strikec,binomial.JPMAC,col = "red")
+lines(strikec,BS.JPMEC)
+
+plot(strikep,binomial.JPMEP,typ="b", col="blue", main=c("Option Pricing"),
+     xlab="Strike Price", ylab="Option Price")
+lines(strikep,binomial.JPMAP,col = "red")
+lines(strikep,BS.JPMEP)
+
+#table to compare market price,BS call option price and Euro&Amer call option
+df1 <- data.frame(CMarketPrice,BS.JPMEC,binomial.JPMEC,binomial.JPMAC)
+df1
+#table to compare market price,BS put option price and Euro&Amer put option
+df2 <- data.frame(PMarketPrice,BS.JPMEP,binomial.JPMEP,binomial.JPMAP)
+df2
+```
+
+## Question(c)
+\textcolor{blue}{Comment: From the table above, we can see both BS price and Binomial price are close to the market price, In European option, the more step that binomial tree set, the more close to the BS price. In call option, binomial tree for European and American can get exactly same data. In put option, American option price can be slightly higher than the European option price.}
+
+
+## Question(d)
+```{r}
+#Function to calculate error between BS price and Binomial price
+abs.err1 <- function(S0,K,tau,r,sig,div,N){
+  y <-c()
+  for(k in 1:12){ #loop for the number of N
+    for(i in 1:10){ #loop for the number of data
+      a <- abs(BS("P",S0, K[i], tau, r, sig[i],div)-
+          Bino.tree(isCall=F, isAmerican=F,K[i],tau,S0,r,sig[i],N[k]))
+    }
+  y <- c(y,a)
+  }
+  return(y)
+}
+N <- c(10,20,30,40,50,100,150,200,250,300,350,400)
+err.one <- abs.err1(S0,K1p,tau1,0.0075,Imv1p,0,N)
+err.two <- abs.err1(S0,K2p,tau2,0.0075,Imv2p,0,N)
+err.three <- abs.err1(S0,K3p,tau3,0.0075,Imv3p,0,N)
+
+plot(N,err.one,typ="b", col="blue", 
+     main=c("Error between BS and Binomial"),xlab="Step", ylab="Error")
+lines(N,err.two,typ="b", col="red")
+lines(N,err.three,typ="b", col="black")
+```
+
+## Bonus(5 point)
+```{r}
+#Function for error between Binomial tree and market price
+err.bino <- function(isCall,S0,K,r,tau,sig,N,MPrice){
+  Bino.tree(isCall, isAmerican=F,K,tau,S0,r,sig,N) - MPrice
+}
+
+#Function to find Binomial Implied Vol using Bisection Method
+Ivol.Bino <- function(isCall, S0, K, tau, r, N, MPrice){ 
+  sig <- c()
+#loop for every strike price and market price
+  for(i in 1:10){
+    a <- -0.01
+    b <- 2
+    c <-(a+b)/2
+#Loop until that the value of function to sigma is less than tolerance level 1e-4 
+    while(abs(b-a) > 1e-4){
+      fb <- err.bino (isCall,S0,K[i],r,tau,b,N,MPrice[i])
+      fc <- err.bino (isCall,S0,K[i],r,tau,c,N,MPrice[i])
+      #print(fa*fc)
+      if( fb * fc < 0 )
+          a <- c
+      else 
+          b <- c
+    c <- (a+b)/2
+    }
+   sig <- c(sig,c)
+  }
+  return(sig)
+}
+
+IV1c <- Ivol.Bino(isCall = T,S0,K1c,tau1,0.0075,100,MPrice1c)
+IV2c <- Ivol.Bino(isCall = T,S0,K2c,tau2,0.0075,100,MPrice2c)
+IV3c <- Ivol.Bino(isCall = T,S0,K3c,tau3,0.0075,100,MPrice3c)
+IV1p <- Ivol.Bino(isCall = F,S0,K1p,tau1,0.0075,100,MPrice1p)
+IV2p <- Ivol.Bino(isCall = F,S0,K2p,tau2,0.0075,100,MPrice2p)
+IV3p <- Ivol.Bino(isCall = F,S0,K3p,tau3,0.0075,100,MPrice3p)
+
+#compare BS Ivol and Binomial Ivol in a table
+DF.Ivol <- data.frame(c(Imv1c,Imv2c,Imv3c),c(IV1c,IV2c,IV3c),c(Imv1p,Imv2p,Imv3p),
+                      c(IV1p,IV2p,IV3p))
+DF.Ivol
+```
+\textcolor{blue}{Comment:} From the table above, the first column is implied volatility from Call option by BS method, the second column is implied vol from call option by binomial tree. the third column is put option implied vol by BS method. the last column is put option implied vol by binomial method. We can see that the results of BS and Binomial implied volatility that calculated by Biasection method is very similar.
+
+
+# Problem 2
+## Question(a)
+```{r}
+# Trinomial Tree: j times, 2*j+1 final nodes
+Tri.tree <- function(isCall, isAmerican, K, T, S0, r, sig, N, div) {
+  
+  # Precompute constants
+  dt = T/N 
+  nu = r - div - 0.5 * sig^2
+  dx=sqrt(sig^2*dt+nu*dt^2)
+  pu = 0.5 * ( (sig^2*dt + nu^2 *dt^2)/dx^2 + nu*dt/dx )
+  pm = 1.0 -   (sig^2*dt + nu^2 *dt^2)/dx^2 
+  pd = 0.5 * ( (sig^2*dt + nu^2 *dt^2)/dx^2 - nu*dt/dx )
+  disc = exp(-r*dt) # discount
+  firstRow = 1
+  r = nRows = lastRow = 2*N+1
+  firstCol = 1
+  middleRow = s = nCols = lastCol = N+1
+  cp = ifelse(isCall, 1, -1)
+  
+  # Intialize asset prices
+  V = S = matrix(0, nrow=nRows, ncol=nCols)
+  S[middleRow, firstCol] = S0
+  for (j in 1:(nCols-1)) {
+    for(i in (middleRow-j+1):(middleRow+j-1)) {
+      S[i-1, j+1] = S[i, j] * exp(dx)
+      S[i ,  j+1] = S[i, j] 
+      S[i+1, j+1] = S[i, j] * exp(-dx)
+    }
+  }
+  # Intialize option values at maturity
+  for (i in 1:nRows) {
+    V[i, lastCol] = max( 0, cp * (S[i, lastCol]-K))
+  }
+  # Step backwards through the tree
+  for (j in (nCols-1):1) {
+    for(i in (nCols-j+1):(nCols+j-1)) {
+      V[i, j] = disc * (pu*V[i-1,j+1] + pm*V[i, j+1] + pd*V[i+1,j+1])
+      if(isAmerican) {
+        V[i, j] = max(V[i, j], cp * (S[i, j] - K))
+      }
+    }
+  }
+  # Return the price
+  V[middleRow,firstCol]
+}
+```
+
+## Question(b)
+```{r}
+#European option
+trinomial.JPMEC <- Tri.tree(isCall=T,isAmerican=F,100,1,100,0.06,0.25,200,0.03)
+trinomial.JPMEP <- Tri.tree(isCall=F,isAmerican=F,100,1,100,0.06,0.25,200,0.03)
+BS.JPMEC <- BS("C",100,100,1, 0.06,0.25,0.03)
+BS.JPMEP <- BS("P",100,100,1, 0.06,0.25,0.03)
+#American option
+trinomial.JPMAC <- Tri.tree(isCall=T,isAmerican=T,100,1,100,0.06,0.25,200,0.03)
+trinomial.JPMAP <- Tri.tree(isCall=F,isAmerican=T,100,1,100,0.06,0.25,200,0.03)
+#present results in table
+DF.tric <- data.frame(BS.JPMEC,trinomial.JPMEC,trinomial.JPMAC)
+DF.trip <- data.frame(BS.JPMEP,trinomial.JPMEP,trinomial.JPMAP)
+#call option compare
+DF.tric
+#put option compare
+DF.trip
+
+abs.err.tri <- function(S0,K,tau,r,sig,div,N){
+  y <-c()
+  for(i in 1:12){
+  a <- abs(BS("P",S0, K, tau, r, sig,div)-
+          Tri.tree(isCall=F, isAmerican=F,K,tau,S0,r,sig,N[i],div))
+  y <- c(y,a)
+  }
+  return(y)
+}
+N <- c(10, 20, 30, 40, 50, 100, 150, 200, 250, 300, 350,400)
+err2 <- abs.err.tri(100,100,1,0.06,0.25,0.03,N)
+plot(N,err2,typ="b", col="black", main=c("Error between BS and Binomial"),
+     xlab="Step", ylab="Error")
+```
+
+
+# Problem 3
+## Question(a)
+```{r}
+#Using binomial tree method to price an European Up-and-Out Call option
+Bino.Barrier.UO <- function(K,T,S,sig,r,H,N){
+  
+  #precompute constants
+  dt = T/N
+  nu = r-0.5*sig^2
+  dx = sqrt(sig^2*dt + (nu*dt)^2)
+  p = 1/2 + 1/2*(nu*dt/dx)
+  disc = exp(-r*dt)
+ 
+  #initialise asset prices at maturity N
+  St = array(0,dim = c(N+1))
+  St[1] <- S * exp(-dx*N)
+  St[2] <- St[1]*exp(2*(dx))
+  for(j in 2:N+1){
+    St[j] = St[j-1]*exp(2*(dx))
+  }
+  #initialise option values at maturity
+  C = array(0,dim = c(N+1))
+    for(j in 1:N+1){
+    if(St[j]<H)
+      C[j] <- max(0.0,St[j] - K)
+    else
+      C[j] <- 0.0
+  }
+  #step back through the tree applying the barrier and early exercise condition
+  for(i in N:1){
+    for(j in 1:i){
+      St[j] = St[j]*exp(dx)
+      if(St[j]<H){
+        C[j] = disc*(1-p)*C[j] + disc*p*C[j+1]
+      }
+      else
+        C[j] = 0.0
+    }
+  }
+  C[1]  
+}
+Bino.Barrier.UO(10,0.3,10,0.2,0.01,11,128)
+```
+\textcolor{blue}{Comment:} In my binomial tree for European up-and out option, I think the tree get convergence by 128 step.
+
+## Question(b)
+```{r}
+#Using B-S method to price an European Up-and-Out Call option
+Barrier.BS.UO <- function(S0,K,H,r,tau,sig,div){
+  nu = r - div - 0.5 * sig^2
+  C.BS.K <- BS("C",S0,K,tau,r,sig,div)
+  C.BS.H <- BS("C",S0,H,tau,r,sig,div)
+  C.BS.H2K <- BS("C",H^2/S0,K,tau,r,sig,div)
+  C.BS.H2H <- BS("C",H^2/S0,H,tau,r,sig,div)
+  d.BS.HS <- (log(H/S0)+nu*tau) / (sig*sqrt(tau)) 
+  d.BS.SH <- (log(S0/H)+nu*tau) / (sig*sqrt(tau))
+  UO.BS <- C.BS.K - C.BS.H - (H-K)*exp(-r*tau)*pnorm(d.BS.SH) - (H/S0)^(2*nu/sig^2)*
+    ( C.BS.H2K - C.BS.H2H - (H-K)*exp(-r*tau)*pnorm(d.BS.HS) )
+  return(UO.BS)
+}
+cat("results by binomial tree:",Bino.Barrier.UO(10,0.3,10,0.2,0.01,11,128),"\nresults by BS formula:",Barrier.BS.UO(10,10,11,0.01,0.3,0.2,0))
+```
+\textcolor{blue}{Comment:} the results of BS method to price this European Up-and-Out Call option are similar with the price that calculated by binomial tree.
+
+## Question(c)
+```{r}
+#Using in-out parity to Price an European Up-and-In call option
+Bino.Barrier.UI <- BS("C",10,10,0.3,0.01,0.2,0) - Bino.Barrier.UO(10,0.3,10,0.2,0.01,11,10)
+
+#Using B-S method to price an European Up-and-Out Call option
+Barrier.BS.UI <- function(S0,K,H,r,tau,sig,div){
+  nu = r - div - 0.5 * sig^2
+  C.BS.K <- BS("C",S0,K,tau,r,sig,div)
+  C.BS.H <- BS("C",S0,H,tau,r,sig,div)
+  P.BS.H2K <- BS("P",H^2/S0,K,tau,r,sig,div)
+  P.BS.H2H <- BS("P",H^2/S0,H,tau,r,sig,div)
+  d.BS.HS <- (log(H/S0)+nu*tau) / (sig*sqrt(tau)) 
+  d.BS.SH <- (log(S0/H)+nu*tau) / (sig*sqrt(tau)) 
+  
+  UI.BS <- (H/S0)^(2*nu/sig^2)*(P.BS.H2K-P.BS.H2H+(H-K)*exp(-r*tau)*pnorm(-d.BS.HS))+
+    C.BS.H+(H-K)*exp(-r*tau)*pnorm(d.BS.SH)
+  return(UI.BS)
+}
+
+cat("results by in-out parity:",Bino.Barrier.UI,"\nresults by BS formula:",Barrier.BS.UI(10,10,11,0.01,0.3,0.2,0))
+```
+\textcolor{blue}{Comment:} We can see from the results above by these two method are match each other.
+
+## Question (d)
+```{r}
+#Pricing European Up-and-Out Put Option
+Bino.EUO.Put <- function(K,T,S,sig,r,H,N){
+  dt = T/N
+  nu = r-0.5*sig^2
+  dx = sqrt(sig^2*dt + (nu*dt)^2)
+  p = 1/2 + 1/2*(nu*dt/dx)
+  #precompute constants
+  disc = exp(-r*dt)
+ 
+  #initialise asset prices at maturity N
+  St = array(0,dim = c(N+1))
+  St[1] <- S * exp(-dx*N)
+  St[2] <- St[1]*exp(2*(dx))
+  for(j in 2:N+1){
+    St[j] = St[j-1]*exp(2*(dx))
+  }
+  #initialise option values at maturity
+  C = array(0,dim = c(N+1))
+    for(j in 1:N+1){
+    if(St[j]<H)
+      C[j] <- max(0.0,K-St[j])
+    else
+      C[j] <- 0.0
+    }
+  #step back through the tree applying the barrier and early exercise condition
+  for(i in N:1){
+    for(j in 1:i){
+      St[j] = St[j]*exp(dx)
+      if(St[j]<H){
+        C[j] = disc*(1-p)*C[j] + disc*p*C[j+1]
+      }
+      else
+        C[j] = 0.0
+    }
+  }
+  C[1]  
+}
+#Calculate European Up-and-In Put Option by in-out parity
+Bino.EUI.Put <- BS("P",10,10,0.3,0.01,0.2,0) - Bino.EUO.Put(10, 0.3, 10, 0.2, 0.01,11,190)
+#Calculate American Up-and-In Put Option
+Bino.AUI.Put <- function(S,tau,X,H,r,sig,q,N){
+  (S/H)^(1-2*(r-q)/sig)*(Bino.tree(isCall = F,isAmerican = T, X, tau, H^2/S, r, sig, N)-
+                           BS("P",H^2/S, X, tau, r, sig,q)) + Bino.EUI.Put
+}
+#the results
+Bino.AUI.Put(10,0.3,10,11,0.01,0.2,0,190)
+```
